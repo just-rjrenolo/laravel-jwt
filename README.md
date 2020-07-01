@@ -1,79 +1,238 @@
-<p align="center"><img src="https://res.cloudinary.com/dtfbvvkyp/image/upload/v1566331377/laravel-logolockup-cmyk-red.svg" width="400"></p>
+## Require jwt
+- composer require tymon/jwt-auth:dev-develop --prefer-source
 
-<p align="center">
-<a href="https://travis-ci.org/laravel/framework"><img src="https://travis-ci.org/laravel/framework.svg" alt="Build Status"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://poser.pugx.org/laravel/framework/d/total.svg" alt="Total Downloads"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://poser.pugx.org/laravel/framework/v/stable.svg" alt="Latest Stable Version"></a>
-<a href="https://packagist.org/packages/laravel/framework"><img src="https://poser.pugx.org/laravel/framework/license.svg" alt="License"></a>
-</p>
+## Config/App
+### add to providers
+- Tymon\JWTAuth\Providers\LaravelServiceProvider::class,
 
-## About Laravel
+### add to facades
+- 'JWTAuth' => Tymon\JWTAuth\Facades\JWTAuth::class,
+- 'JWTFactory' => Tymon\JWTAuth\Facades\JWTFactory::class,
 
-Laravel is a web application framework with expressive, elegant syntax. We believe development must be an enjoyable and creative experience to be truly fulfilling. Laravel takes the pain out of development by easing common tasks used in many web projects, such as:
+## publish the config file for JWT
+- php artisan vendor:publish --provider="Tymon\JWTAuth\Providers\LaravelServiceProvider"
 
-- [Simple, fast routing engine](https://laravel.com/docs/routing).
-- [Powerful dependency injection container](https://laravel.com/docs/container).
-- Multiple back-ends for [session](https://laravel.com/docs/session) and [cache](https://laravel.com/docs/cache) storage.
-- Expressive, intuitive [database ORM](https://laravel.com/docs/eloquent).
-- Database agnostic [schema migrations](https://laravel.com/docs/migrations).
-- [Robust background job processing](https://laravel.com/docs/queues).
-- [Real-time event broadcasting](https://laravel.com/docs/broadcasting).
+## generate JWT secret
+- php artisan jwt:secret
 
-Laravel is accessible, powerful, and provides tools required for large, robust applications.
+## configure User model to use JWT
 
-## Learning Laravel
+```PHP
+<?php
+    namespace App;
+    use Illuminate\Notifications\Notifiable;
+    use Illuminate\Foundation\Auth\User as Authenticatable;
+    use Tymon\JWTAuth\Contracts\JWTSubject;
+    class User extends Authenticatable implements JWTSubject{
+        use Notifiable;
+        /**
+         * The attributes that are mass assignable.
+         *
+         * @var array
+         */
+        protected $fillable = [
+            'name', 'email', 'password',
+        ];
+        /**
+         * The attributes that should be hidden for arrays.
+         *
+         * @var array
+         */
+        protected $hidden = [
+            'password', 'remember_token',
+        ];
+        public function getJWTIdentifier(){
+            return $this->getKey();
+        }
+        public function getJWTCustomClaims(){
+            return [];
+        }
+    }
+```
 
-Laravel has the most extensive and thorough [documentation](https://laravel.com/docs) and video tutorial library of all modern web application frameworks, making it a breeze to get started with the framework.
+We have defined the User model to implement JWTSubject. We also defined two methods to return the JWTIdentifier and JWTCustomClaims. Custom claims are used in generating the JWT token.
 
-If you don't feel like reading, [Laracasts](https://laracasts.com) can help. Laracasts contains over 1500 video tutorials on a range of topics including Laravel, modern PHP, unit testing, and JavaScript. Boost your skills by digging into our comprehensive video library.
 
-## Laravel Sponsors
+# Controllers
+- php artisan make:controller UserController 
+- php artisan make:controller DataController
 
-We would like to extend our thanks to the following sponsors for funding Laravel development. If you are interested in becoming a sponsor, please visit the Laravel [Patreon page](https://patreon.com/taylorotwell).
 
-- **[Vehikl](https://vehikl.com/)**
-- **[Tighten Co.](https://tighten.co)**
-- **[Kirschbaum Development Group](https://kirschbaumdevelopment.com)**
-- **[64 Robots](https://64robots.com)**
-- **[Cubet Techno Labs](https://cubettech.com)**
-- **[Cyber-Duck](https://cyber-duck.co.uk)**
-- **[Many](https://www.many.co.uk)**
-- **[Webdock, Fast VPS Hosting](https://www.webdock.io/en)**
-- **[DevSquad](https://devsquad.com)**
-- [UserInsights](https://userinsights.com)
-- [Fragrantica](https://www.fragrantica.com)
-- [SOFTonSOFA](https://softonsofa.com/)
-- [User10](https://user10.com)
-- [Soumettre.fr](https://soumettre.fr/)
-- [CodeBrisk](https://codebrisk.com)
-- [1Forge](https://1forge.com)
-- [TECPRESSO](https://tecpresso.co.jp/)
-- [Runtime Converter](http://runtimeconverter.com/)
-- [WebL'Agence](https://weblagence.com/)
-- [Invoice Ninja](https://www.invoiceninja.com)
-- [iMi digital](https://www.imi-digital.de/)
-- [Earthlink](https://www.earthlink.ro/)
-- [Steadfast Collective](https://steadfastcollective.com/)
-- [We Are The Robots Inc.](https://watr.mx/)
-- [Understand.io](https://www.understand.io/)
-- [Abdel Elrafa](https://abdelelrafa.com)
-- [Hyper Host](https://hyper.host)
-- [Appoly](https://www.appoly.co.uk)
-- [OP.GG](https://op.gg)
-- [云软科技](http://www.yunruan.ltd/)
+## User Controller
+```PHP
+ <?php
+    namespace App\Http\Controllers;
+    use App\User;
+    use Illuminate\Http\Request;
+    use Illuminate\Support\Facades\Hash;
+    use Illuminate\Support\Facades\Validator;
+    use JWTAuth;
+    use Tymon\JWTAuth\Exceptions\JWTException;
+    class UserController extends Controller{
+        public function authenticate(Request $request){
+            $credentials = $request->only('email', 'password');
+            try {
+                if (! $token = JWTAuth::attempt($credentials)) {
+                    return response()->json(['error' => 'invalid_credentials'], 400);
+                }
+            } catch (JWTException $e) {
+                return response()->json(['error' => 'could_not_create_token'], 500);
+            }
+            return response()->json(compact('token'));
+        }
+        public function register(Request $request){
+                $validator = Validator::make($request->all(), [
+                'name' => 'required|string|max:255',
+                'email' => 'required|string|email|max:255|unique:users',
+                'password' => 'required|string|min:6|confirmed',
+            ]);
 
-## Contributing
+            if($validator->fails()){
+                    return response()->json($validator->errors()->toJson(), 400);
+            }
 
-Thank you for considering contributing to the Laravel framework! The contribution guide can be found in the [Laravel documentation](https://laravel.com/docs/contributions).
+            $user = User::create([
+                'name' => $request->get('name'),
+                'email' => $request->get('email'),
+                'password' => Hash::make($request->get('password')),
+            ]);
 
-## Code of Conduct
+            $token = JWTAuth::fromUser($user);
 
-In order to ensure that the Laravel community is welcoming to all, please review and abide by the [Code of Conduct](https://laravel.com/docs/contributions#code-of-conduct).
+            return response()->json(compact('user','token'),201);
+        }
 
-## Security Vulnerabilities
+        public function getAuthenticatedUser(){
+            try {
+                if (! $user = JWTAuth::parseToken()->authenticate()) {
+                    return response()->json(['user_not_found'], 404);
+                }
+            } catch (Tymon\JWTAuth\Exceptions\TokenExpiredException $e) {
+                    return response()->json(['token_expired'], $e->getStatusCode());
+            } catch (Tymon\JWTAuth\Exceptions\TokenInvalidException $e) {
+                    return response()->json(['token_invalid'], $e->getStatusCode());
+            } catch (Tymon\JWTAuth\Exceptions\JWTException $e) {
+                    return response()->json(['token_absent'], $e->getStatusCode());
+            }
+            return response()->json(compact('user'));
+    }
+}
+```
 
-If you discover a security vulnerability within Laravel, please send an e-mail to Taylor Otwell via [taylor@laravel.com](mailto:taylor@laravel.com). All security vulnerabilities will be promptly addressed.
+The authenticate method attempts to log a user in and generates an authorization token if the user is found in the database. It throws an error if the user is not found or if an exception occurred while trying to find the user.
 
-## License
+The register method validates a user input and creates a user if the user credentials are validated. The user is then passed on to JWTAuth to generate an access token for the created user. This way, the user would not need to log in to get it.
 
-The Laravel framework is open-sourced software licensed under the [MIT license](https://opensource.org/licenses/MIT).
+We have the getAuthenticatedUser method which returns the user object based on the authorization token that is passed.
+
+## Data Controller
+```PHP
+ <?php
+    namespace App\Http\Controllers;
+    use Illuminate\Http\Request;
+    class DataController extends Controller{
+        public function open(){
+            $data = "This data is open and can be accessed without the client being authenticated";
+            return response()->json(compact('data'),200);
+        }
+        public function closed(){
+            $data = "Only authorized users can see this";
+            return response()->json(compact('data'),200);
+        }
+    }
+```
+
+# Creating Midlleware
+- php artisan make:middleware JwtMiddleware
+
+## app/Http/Middleware/JwtMiddleware
+
+```PHP
+<?php
+    namespace App\Http\Middleware;
+    use Closure;
+    use JWTAuth;
+    use Exception;
+    use Tymon\JWTAuth\Http\Middleware\BaseMiddleware;
+
+    class JwtMiddleware extends BaseMiddleware{
+
+        /**
+         * Handle an incoming request.
+         *
+         * @param  \Illuminate\Http\Request  $request
+         * @param  \Closure  $next
+         * @return mixed
+         */
+        public function handle($request, Closure $next){
+            try {
+                $user = JWTAuth::parseToken()->authenticate();
+            } catch (Exception $e) {
+                if ($e instanceof \Tymon\JWTAuth\Exceptions\TokenInvalidException){
+                    return response()->json(['status' => 'Token is Invalid']);
+                }else if ($e instanceof \Tymon\JWTAuth\Exceptions\TokenExpiredException){
+                    return response()->json(['status' => 'Token is Expired']);
+                }else{
+                    return response()->json(['status' => 'Authorization Token not found']);
+                }
+            }
+            return $next($request);
+        }
+    }
+```
+This middleware extends Tymon\JWTAuth\Http\Middleware\BaseMiddleware, with this, we can catch token errors and return appropriate error codes to our users.
+
+## register JWTMiddleware in Kernel.php
+```PHP
+protected $routeMiddleware = [
+    'jwt.verify' => \App\Http\Middleware\JwtMiddleware::class,
+];
+```
+
+## routes under api.php
+```PHP
+Route::post('register', 'UserController@register');
+Route::post('login', 'UserController@authenticate');
+Route::get('open', 'DataController@open');
+
+Route::group(['middleware' => ['jwt.verify']], function() {
+    Route::get('user', 'UserController@getAuthenticatedUser');
+    Route::get('closed', 'DataController@closed');
+});
+```
+
+#FORM DATA
+`/api/register`
+- name
+- email
+- password
+- password_confirmation
+
+`/api/login`
+- email
+-password
+
+`/api/open`
+- this is an open route
+
+`/api/closed`
+```
+Header 
+Authorization : Bearer Token
+```
+
+```
+Endpoint : 127.0.0.1:8000/api/user
+Method: GET
+Payload:
+
+Authorization: Bearer insert_user_token_here
+```
+
+```
+Endpoint : 127.0.0.1:8000/api/user
+Method: GET
+Payload:
+
+Authorization: Bearer thistokeniswrong
+```
